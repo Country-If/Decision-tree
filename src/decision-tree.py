@@ -38,17 +38,6 @@ def calcEnt(dataSet):
     return ent
 
 
-def createDataSet():
-    """
-    :return: DataFrame
-    """
-    row_data = {'no surfacing': [1, 1, 1, 0, 0],
-                'flippers': [1, 1, 0, 1, 1],
-                'fish': ['yes', 'yes', 'no', 'no', 'no']}
-    dataSet = pd.DataFrame(row_data)
-    return dataSet
-
-
 def bestSplit(dataSet):
     """
     数据集最佳切分函数：根据信息增益选出最佳数据集切分的列
@@ -90,7 +79,7 @@ def dataSetSpilt(dataSet, axis, value):
 def createTree_ID3(dataSet):
     """
     ID3算法构建决策树
-    :param dataSet:原始数据集
+    :param dataSet:原始数据集，注意标签列不能是数值
     :return: 字典形式的树
     """
     tag_col = -1  # 标签所在列，根据实际dataFrame确定
@@ -116,10 +105,10 @@ def classify(inputTree, labels, testVec):
     :param testVec: 测试数据列表，顺序对应原数据集
     :return: 分类结果
     """
-    classLabel = ""
     firstStr = next(iter(inputTree))        # 获取决策树第一个节点
     secondDict = inputTree[firstStr]        # 下一个字典
     featIndex = labels.index(firstStr)      # 第一个节点所在列的索引
+    classLabel = secondDict[list(secondDict.keys())[0]]     # 标签初始化
     for key in secondDict.keys():
         if testVec[featIndex] == key:
             if type(secondDict[key]) == dict:
@@ -129,54 +118,66 @@ def classify(inputTree, labels, testVec):
     return classLabel
 
 
-def acc_classify(train, test):
+def acc_classify(train, test, Tree):
     """
     对测试集进行预测，并返回预测后的结果
     :param train: 训练集
     :param test: 测试集
+    :param Tree: 决策树
     :return: 预测好分类的测试集和准确率(tuple)
     """
-    inputTree = createTree_ID3(train)       # 根据训练集生成决策树
     labels = list(train.columns)        # 数据集所有的名称
-    result = []
+    row_index = test.index.to_list()
+    result = pd.DataFrame(None, index=row_index, columns=["predict"])       # 初始化result，dataframe类型
     for i in range(test.shape[0]):      # 对测试集中每一行数据(每一个实例)进行循环
         testVec = test.iloc[i, :-1]     # 取出每行的数据部分；标签列是最后一列，根据实际dataframe确定
-        classLabel = classify(inputTree, labels, testVec)       # 预测该实例的分类
-        result.append(classLabel)       # 将分类结果追加到result列表中
-    test['predict'] = result        # 将预测结果追加到测试集最后一列
+        classLabel = classify(Tree, labels, testVec)       # 预测该实例的分类
+        result.iloc[i, 0] = classLabel      # 将分类结果追加到result列表中
+    test = pd.concat([test, result], axis=1)        # 拼接两个dataframe
     acc = (test.iloc[:, -1] == test.iloc[:, -2]).mean()     # 计算准确率；最后一列为预测结果，倒数第二列为标签列
     return test, acc     # 返回测试集和准确率
 
 
-def save_tree(filename, tree):
+def save_tree(Tree, filename="mytree.npy"):
     """
     保存决策树
     :param filename: 保存为*.npy文件
-    :param tree: 所构建的决策树
+    :param Tree: 所构建的决策树
     """
-    np.save(filename, tree)
+    try:
+        np.save(filename, Tree)
+        print("Tree Saved in " + filename)
+    except Exception as e:
+        print(e)
+        print("Failed to Save the Tree.")
 
 
-def load_tree(filename):
+def load_tree(filename="mytree.npy"):
     """
     加载决策树
     :param filename: 读取的*.npy文件
     :return: 决策树
     """
-    tree = np.load(filename, allow_pickle=True).item()
-    return tree
+    try:
+        Tree = np.load(filename, allow_pickle=True).item()
+        return Tree
+    except Exception as e:
+        print(e)
+        print("Failed to Load the Tree.")
 
 
-def split_dataset(dataSet_data, dataSet_target, test_size):
-    """
-
-    :param dataSet_data: 数据集的数据
-    :param dataSet_target: 数据集的标签
-    :param test_size: 切分数据集的比例
-    :return: 切分后的训练集和测试集(数据和标签分开)<class 'numpy.ndarray'>
-    """
-    train_data, test_data, train_target, test_target = train_test_split(dataSet_data, dataSet_target, test_size=test_size)
-    return train_data, test_data, train_target, test_target
+# def split_dataset(dataSet_data, dataSet_target, test_size):
+#     """
+#
+#     :param dataSet_data: 数据集的数据
+#     :param dataSet_target: 数据集的标签
+#     :param test_size: 切分数据集的比例
+#     :return: 切分后的训练集和测试集(数据和标签分开)<class 'numpy.ndarray'>
+#     """
+#     train_data, test_data, train_target, test_target = train_test_split(dataSet_data,
+#                                                                         dataSet_target,
+#                                                                         test_size=test_size)
+#     return train_data, test_data, train_target, test_target
 
 
 def Make_tree(train_data, test_data, train_target, test_target, criterion='gini'):
@@ -198,17 +199,57 @@ def Draw_tree(clf, filename, feature_names=None, class_names=None):
     print("Done.")
 
 
-if __name__ == '__main__':
-    dataset = createDataSet()
+def get_test_dataset():
+    """
+    调试用，固定训练集和测试集
+    :return: None
+    """
+    data = datasets.load_iris()
+    dataset = Bunch2dataframe(data)
+    target_col = -1
+    for i in range(len(dataset)):
+        if dataset.iloc[i, target_col] == 0:
+            dataset.iloc[i, target_col] = 'a'
+        elif dataset.iloc[i, target_col] == 1:
+            dataset.iloc[i, target_col] = 'b'
+        elif dataset.iloc[i, target_col] == 2:
+            dataset.iloc[i, target_col] = 'c'
     print(dataset)
-    # Ent = calcEnt(dataset)
-    # print(f'香农熵的值为{Ent}')
-    # column = bestSplit(dataset)
-    # print(f'最大信息增益所在列的索引为{column}')
-    # mytree = createTree_ID3(dataset)
-    # print(mytree)
-    # np.save('myTree.npy', mytree)
-    # save_tree('myTree.npy', mytree)
-    # read_myTree = np.load('myTree.npy', allow_pickle=True).item()
-    read_myTree = load_tree('myTree.npy')
-    print(read_myTree)
+    train, test = train_test_split(dataset, test_size=0.3)
+    train.to_csv("train.csv", index=None)
+    test.to_csv("test.csv", index=None)
+
+
+def ID3():
+    # get_test_dataset()        # 调试
+    # train = pd.read_csv("train.csv")      # 调试，固定训练集
+    # test = pd.read_csv("test.csv")        # 调试，固定测试集
+    data = datasets.load_iris()     # 加载数据集
+    dataset = Bunch2dataframe(data)
+    target_col = -1
+    # 标签列不可为数值，故对标签列进行处理
+    for i in range(len(dataset)):
+        if dataset.iloc[i, target_col] == 0:
+            dataset.iloc[i, target_col] = 'a'
+        elif dataset.iloc[i, target_col] == 1:
+            dataset.iloc[i, target_col] = 'b'
+        elif dataset.iloc[i, target_col] == 2:
+            dataset.iloc[i, target_col] = 'c'
+    print(dataset)
+    train, test = train_test_split(dataset, test_size=0.3)      # 切分训练集和测试集
+    mytree = createTree_ID3(train)      # 构建决策树
+    save_tree(mytree)
+    tree_model = load_tree()
+    print(tree_model)
+    test_result, score = acc_classify(train, test, tree_model)      # 对测试集进行预测并给出准确率
+    print(test_result)
+    print(score)
+
+
+def sklearn():
+    pass
+
+
+if __name__ == '__main__':
+    ID3()
+    # sklearn()
